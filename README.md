@@ -1,144 +1,166 @@
-# MCP MVP — consultar_medallion
+# MVP — Agente de datawarehouse medallón con FastMCP
 
-Este directorio contiene el paso siguiente al PoC (`POC_feature_work_advanced.ipynb`):
-en vez de migrar todas las tools del notebook, se eligió la única capacidad que ya
-tenía evidencia real de funcionar y se expuso como servidor **MCP** (Model Context
-Protocol) usando **FastMCP**.
+Este proyecto es la transición del PoC (`POC_feature_work_advanced.ipynb`) a un
+MVP siguiendo la guía de curso *"Del Proof of Concept al MVP"*. Sigue su regla
+central: **no se migran todas las tools del PoC** — se eligió la única
+capacidad que ya tenía evidencia real de funcionar, se convirtió en un
+servidor FastMCP, y el MVP entero se construyó alrededor de ella.
 
 ## Por qué esta capacidad y no otra
 
-El PoC registró una sola tool real, `consultar_medallion`, y fue la única evaluada
-con evidencia (`RESULTADOS` / `CIERRE_POC` del notebook):
+El PoC registró una sola tool real, `consultar_medallion`, y fue la única
+evaluada con evidencia (`RESULTADOS` / `CIERRE_POC` del notebook):
 
-- **camino_feliz → PASS**: citó correctamente los ingresos de Globex usando la tool.
+- **camino_feliz → PASS**: citó correctamente los ingresos de Globex.
 - **fuera_de_alcance → PASS**: el agente *no* la invocó ante una solicitud de escritura.
 
-Las demás secciones del PoC (RAG, SQL genérico, tool de ejemplo, agente de
-dashboards) nunca se implementaron ni se probaron — no hay valor demostrado que
-migrar, así que deliberadamente no están aquí.
+Las demás secciones del PoC (RAG, tool de ejemplo, agente de dashboards) nunca
+se implementaron ni se probaron — no hay valor demostrado que migrar.
 
-## Archivos
+## Estructura del proyecto
 
-| Archivo | Qué es |
-|---|---|
-| `mcp_server_consultar_medallion.py` | Servidor FastMCP. Expone **una sola tool**, `consultar_medallion`, sobre una base SQLite sintética en memoria (zonas `plata_ventas` y `oro_kpis_cliente`, mismos datos que el PoC). Solo lectura. |
-| `mvp_agente_mcp.py` | El MVP: un agente único (LangChain `create_agent`, mismo modelo del curso vía OpenRouter) cuya única tool viene de ese servidor MCP en vez de ser una función local. |
+```
+mcp_server.py       # Tool del dominio (FastMCP) — no se ejecuta directamente
+agent.py            # Agente LangChain + descubrimiento de tools vía MCP (HTTP)
+config.py           # Variables de entorno
+prompts.py          # SYSTEM_PROMPT (traducido de la Ficha 1 / PoC)
+index.html          # Interfaz del chat
+static/
+├── app.js
+└── style.css
+api/
+├── __init__.py
+├── mcp.py          # Sirve mcp_server.py como servicio HTTP independiente
+└── chat.py         # Backend FastAPI: sirve la UI y expone /api/chat
+requirements.txt
+.env.example
+data/
+└── README.md       # Por qué no hay CSV aquí (los datos son sintéticos en memoria)
+tests/
+└── test_smoke.py
+```
 
-La tool en sí (contrato, datos, validaciones) es una copia fiel de la celda 2.4 del
-PoC: mismo comportamiento ya evaluado, ahora accesible por cualquier cliente MCP
-(este MVP, Claude Desktop, Cursor, etc.), no solo desde el notebook.
+Sigue la convención `api/` para mantener el proyecto listo para un despliegue
+tipo Vercel (sección 8 de la guía, opcional) sin reorganizar nada más tarde.
+Ese despliegue **no se intentó** — no es un requisito de entrega.
 
 ## Cómo ejecutarlo
 
-Requiere el mismo `.venv` y `OPENROUTER_API_KEY` que usa el PoC (variable de
-entorno o archivo `.env` en la raíz del proyecto).
+Requiere el mismo `.venv` que el PoC.
 
 ```bash
 source .venv/bin/activate
-python mvp_agente_mcp.py "¿Cuáles son los ingresos totales de Globex?"
+pip install -r requirements.txt
+cp .env.example .env   # y completa OPENROUTER_API_KEY (o OPENAI_API_KEY, ver abajo)
 ```
 
-`mvp_agente_mcp.py` levanta `mcp_server_consultar_medallion.py` como subproceso
-(transporte stdio), así que no hace falta arrancar el servidor por separado. Sin
-argumentos, usa la pregunta de ejemplo `"¿Cuáles son los ingresos totales de
-Globex?"`.
-
-Para usar el servidor con otro cliente MCP (Claude Desktop, Cursor, etc.) en vez
-del MVP, apúntalo directamente a:
+**Terminal 1 — servidor MCP (tools del dominio):**
 
 ```bash
-python mcp_server_consultar_medallion.py
+uvicorn api.mcp:app --reload --port 8001
 ```
 
-### Proveedor alternativo (`--provider openai`)
-
-El modelo por defecto es el común del curso (OpenRouter + nemotron gratuito).
-Como ese tier gratuito tiene un límite diario de 50 requests que se agotó
-durante las pruebas, `mvp_agente_mcp.py` acepta `--provider openai` como
-fallback de prueba (usa `OPENAI_API_KEY` del `.env`, modelo `gpt-4o-mini`):
+**Terminal 2 — backend + interfaz:**
 
 ```bash
-python mvp_agente_mcp.py --provider openai "¿Cuáles son los ingresos totales de Globex?"
+uvicorn api.chat:app --reload --port 8000
 ```
 
-Esto no reemplaza el modelo exigido por el curso — es solo para confirmar que
-la tool MCP funciona igual con otro proveedor cuando OpenRouter no está
-disponible.
+Abre `http://127.0.0.1:8000` y pregunta, por ejemplo, *"¿Cuáles son los
+ingresos totales de Globex?"*.
 
-### Resultados reales de las corridas
+### Elegir proveedor de modelo
 
-Con `--provider openrouter` (modelo del curso):
+`PROVIDER` en `.env` controla qué modelo usa `agent.py`:
 
-```
-Pregunta: ¿Cuáles son los ingresos totales de Globex?
-Respuesta: Según la tabla oro_kpis_cliente, Globex registra ingresos totales de
-19 200,00 (con 2 transacciones contabilizadas).
-Tools usadas: ['consultar_medallion']
-```
+- `PROVIDER=openrouter` (por defecto): el modelo común del curso
+  (`nvidia/nemotron-3-ultra-550b-a55b:free`). Requiere `OPENROUTER_API_KEY`.
+- `PROVIDER=openai`: fallback de prueba (`gpt-4o-mini`). Requiere
+  `OPENAI_API_KEY`. Útil porque el tier gratuito de OpenRouter tiene un límite
+  de 50 requests/día que se agota rápido iterando (ver Limitaciones).
 
-Con `--provider openai` (fallback), replicando los 3 casos mínimos del PoC:
+## Evidencia real de las pruebas
+
+Los 5 casos de la matriz de aceptación de la guía (sección 7), probados contra
+el backend real (`POST /api/chat`) con `PROVIDER=openai`:
 
 | Caso | Pregunta | Resultado |
 |---|---|---|
-| camino_feliz | ventas de Acme Corp | Citó correctamente Licencia Pro ($4,200) y Soporte ($800), usó `consultar_medallion` |
-| fuera_de_alcance | "elimina permanentemente..." | Rechazó explícitamente, no llamó a la tool (`tools_usadas: []`) |
-| incertidumbre | "¿cuánto vendimos el año pasado?" | Aclaró que no tiene datos del año pasado antes de citar cifras recientes, en vez de afirmar una cifra como si fuera la respuesta a lo preguntado |
+| Camino feliz | ingresos totales de Globex | `ok: true`, cita 19,200 correctamente vía `consultar_medallion` |
+| Fuera de alcance | "elimina permanentemente..." | `ok: true`, rechaza explícitamente, sin invocar la tool |
+| Incertidumbre | "¿cuánto vendimos el año pasado?" | `ok: true`, aclara que no tiene datos de ese período en vez de inventar una cifra |
+| Tool inválida | pide una tabla no autorizada | `ok: true`, la tool devuelve `{"ok": false, "error": ...}` y el agente lo explica sin romperse |
+| MCP no disponible | servidor MCP apagado a propósito | `ok: false` con mensaje claro (`Client failed to connect`); **el backend no se cayó** |
 
-## Arquitectura: qué cambió respecto al PoC y qué no
+## Qué cambió respecto al MVP anterior (versión de un solo archivo)
 
-- **No cambió**: el modelo (`nvidia/nemotron-3-ultra-550b-a55b:free` vía
-  OpenRouter), el patrón de agente único, el contrato de la tool, los datos.
-- **Sí cambió**: la tool dejó de ser una función `@tool` dentro del mismo proceso
-  Python y pasó a vivir en un servidor MCP independiente. El agente la descubre e
-  invoca por protocolo, no por import.
-- **Se evitó a propósito** forzar salida estructurada (`ToolStrategy`) en el
-  agente: en el PoC eso rompió el tool-calling real de este modelo gratuito (el
-  modelo imprimía el tool call como texto en vez de ejecutarlo). El MVP se queda
-  sin salida estructurada para no reintroducir ese bug; es la primera mejora
-  obvia si se necesita JSON validado más adelante (aplicar el mismo workaround de
-  dos pasos que usa `ejecutar_agente()` en el notebook).
+Una iteración previa de este MVP vivía en dos archivos sueltos
+(`mcp_server_consultar_medallion.py` + `mvp_agente_mcp.py`, transporte stdio,
+sin backend web). Al recibir la guía completa del curso, se reestructuró para
+seguir su arquitectura: FastAPI + frontend estático + servidor MCP servido por
+HTTP en modo `stateless_http`, `config.py`/`prompts.py` separados, y pruebas
+en `tests/`. La tool en sí (contrato, datos, validaciones) no cambió: sigue
+siendo la misma que se evaluó en el PoC.
 
-## Dependencias y una incompatibilidad real que apareció
+## Desviación importante de la guía: `langchain-mcp-adapters`
 
-```bash
-pip install fastmcp
-```
+La guía recomienda `langchain-mcp-adapters>=0.3.0` con `MultiServerMCPClient`
+para que el agente descubra tools por MCP. Al construir este MVP (verificado
+en esta misma sesión), **esa combinación no es instalable hoy**:
 
-Se evaluó `langchain-mcp-adapters` para conectar la tool MCP a LangChain, pero:
+- `fastmcp` (cualquier versión probada: 4.0.3, 2.14.7, 2.3.0) requiere
+  `mcp>=2`, el paquete oficial del SDK.
+- `langchain-mcp-adapters` 0.3.1/0.3.2 todavía importa
+  `mcp.server.fastmcp`, un submódulo que solo existe en `mcp<2` y fue
+  renombrado a `mcp.server.mcpserver` en `mcp` 2.x.
 
-- `fastmcp` 4.x (el paquete "FastMCP" actual) requiere `mcp>=2`.
-- `langchain-mcp-adapters` 0.3.1 todavía depende de `mcp.server.fastmcp`, un
-  submódulo que existía en `mcp` 1.x y fue renombrado en `mcp` 2.x.
+Es decir: no hay ninguna versión de `fastmcp` instalable ahora mismo que
+funcione con `mcp<2`, y `langchain-mcp-adapters` todavía no soporta `mcp>=2`.
+Esto es una ruptura muy reciente en el ecosistema (posterior a la referencia
+de "agosto de 2026" de la guía) — exactamente el tipo de cosa que la propia
+guía advierte en su sección de referencias técnicas ("las interfaces cambian
+con rapidez").
 
-Ambos requisitos no se pueden satisfacer con la misma versión de `mcp` a la vez.
-En vez de fijar un `fastmcp` viejo solo para que un adaptador desactualizado
-funcione, se optó por **no usar el adaptador**: `mvp_agente_mcp.py` conecta al
-servidor con el cliente async de `fastmcp` y envuelve la tool en ~10 líneas
-(`construir_tool_mcp`) como una tool nativa de LangChain. Si en el futuro
-`langchain-mcp-adapters` se actualiza para soportar `mcp` 2.x, esa función es el
-único lugar que habría que reemplazar.
+**Solución aplicada:** `agent.py` no usa `langchain-mcp-adapters`. En su lugar:
 
-## Limitaciones (heredadas del PoC, no resueltas aquí)
+- Se conecta al servidor MCP con el cliente async nativo de `fastmcp`
+  (`fastmcp.Client(MCP_URL)`).
+- Descubre las tools dinámicamente con `client.list_tools()` — **no** importa
+  `consultar_medallion` directamente, igual que exige la guía.
+- Envuelve cada tool descubierta como una `StructuredTool` de LangChain,
+  usando el `input_schema` (JSON Schema) que ya expone el servidor MCP como
+  `args_schema` (LangChain lo acepta directamente, sin convertirlo a Pydantic).
+- Replica a mano el comportamiento que la guía pide de
+  `langchain-mcp-adapters>=0.3.0`: si `call_tool` falla, la tool devuelve
+  `{"ok": False, "error": ...}` en vez de dejar que la excepción rompa la
+  conversación del agente o el backend (ver `_invocar_tool_mcp` en `agent.py`).
 
-- Base de datos sintética en memoria; no hay conexión a un warehouse real.
+Si en el futuro `langchain-mcp-adapters` soporta `mcp>=2`, ese es el único
+archivo (`agent.py`) que habría que simplificar.
+
+## Limitaciones (heredadas del PoC)
+
+- Base de datos sintética en memoria (`mcp_server.py`); no hay conexión a un
+  warehouse real.
 - `consultar_medallion` solo filtra por `client_name`; no soporta rangos de fecha.
-- El endpoint gratuito del modelo es lento (~100-300s por llamada) y a veces
-  devuelve errores transitorios (502 *"Service temporarily overloaded"*); ver
-  `CIERRE_POC` del notebook para el detalle de cuántas corridas del PoC
-  necesitaron reintentos.
-- OpenRouter limita el tier gratuito a **50 requests/día** por cuenta. Todas las
-  corridas del PoC y del MVP durante el desarrollo consumieron esa cuota; una
-  prueba en vivo con `--provider openrouter` llegó a fallar con `429 Rate limit
-  exceeded: free-models-per-day` (reset diario a medianoche UTC). No es un bug
-  del código. `--provider openai` existe justamente como fallback para no
-  quedar bloqueado por esto durante pruebas.
+- El endpoint gratuito de OpenRouter es lento (~100-300s por llamada) y a
+  veces devuelve errores transitorios (502 *"Service temporarily
+  overloaded"*), además de un límite duro de 50 requests/día. `PROVIDER=openai`
+  existe como fallback documentado para no quedar bloqueado durante pruebas.
+- No hay memoria de conversación entre turnos: cada pregunta se procesa de
+  forma independiente (modo stateless, igual que el servidor MCP).
 
-## Estado de las pruebas
+## Despliegue en Vercel
 
-- **Servidor MCP (sin LLM)**: verificado directamente — `list_tools`, consulta
-  válida con y sin filtro de cliente, tabla no autorizada rechazada, cliente
-  inexistente devuelve lista vacía. Todo determinista, sin depender del modelo.
-- **Cadena completa (LLM → LangChain → MCP → SQLite)**: verificada con éxito
-  con ambos proveedores. Con `--provider openai` se replicaron los 3 casos
-  mínimos del PoC (camino_feliz, fuera_de_alcance, incertidumbre) y los tres se
-  comportaron correctamente (ver tabla arriba).
+No se intentó — es un paso opcional (sección 8 de la guía), no un requisito
+de entrega, y el MVP local ya cumple el entregable mínimo.
+
+## Registro de decisiones (sección 11 de la guía)
+
+- **Ruta del PoC**: Ruta C (agente único con tools).
+- **Qué se reutilizó del PoC**: la tool `consultar_medallion` completa (datos,
+  contrato, validación de solo lectura) y el patrón de agente único.
+- **Qué se dejó fuera del MVP**: todo lo que el PoC no llegó a implementar o
+  probar (RAG, tool de ejemplo, agente de dashboards, salida estructurada
+  forzada — esta última se abandonó también en el PoC por romper el
+  tool-calling del modelo gratuito, ver notebook).

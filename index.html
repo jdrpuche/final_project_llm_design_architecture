@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>MVP con MCP — Datawarehouse Medallón</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Agente de datawarehouse (MVP con MCP)</h1>
+    <p class="aviso">
+      Consulta las zonas plata y oro del datawarehouse medallón mediante una
+      herramienta MCP verificable. Datos de demostración sintéticos.
+    </p>
+    <div id="historial"></div>
+    <form id="formulario">
+      <input id="pregunta" type="text" placeholder="Ej: ¿Cuáles son los ingresos totales de Globex?" autocomplete="off" />
+      <button type="submit">Enviar</button>
+    </form>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

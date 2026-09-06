@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+fastmcp
+langchain
+langchain-openai
+python-dotenv
+
+# NOTA: la guía recomienda langchain-mcp-adapters>=0.3.0 para descubrir tools
+# vía MultiServerMCPClient. Al construir este MVP, ese paquete resultó
+# incompatible con toda versión instalable de fastmcp (ver README y el
+# comentario al inicio de agent.py). Mientras esa incompatibilidad no se
+# resuelva, agent.py usa el cliente async de fastmcp directamente y no
+# depende de langchain-mcp-adapters.

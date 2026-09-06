@@ -1,21 +1,19 @@
-"""Servidor FastMCP para la única capacidad del PoC que ya demostró valor.
+"""Herramientas del dominio, expuestas como servidor MCP.
 
-Decisión de alcance: el PoC (POC_feature_work_advanced.ipynb) registró una sola
-tool real, consultar_medallion, y fue la única evaluada con evidencia:
-- camino_feliz PASS: citó correctamente los ingresos de Globex vía esta tool.
-- fuera_de_alcance PASS: el agente NO la invocó ante una solicitud de escritura.
-No se migran las demás secciones del PoC (RAG, SQL genérico, tool de ejemplo):
-nunca se implementaron ni se probaron, así que no hay valor demostrado que
-migrar. Este servidor expone deliberadamente una sola tool.
+Este archivo NO se ejecuta directamente: api/mcp.py lo sirve en local vía
+HTTP (modo stateless), y sería el mismo archivo que se montaría en un
+despliegue unificado si se intentara la sección 8 (opcional) de la guía.
 
-La implementación de la tool (base sintética, tablas autorizadas, validación
-de solo lectura) es una copia fiel de la celda 2.4 del PoC: mismo contrato,
-mismos datos, para que el resultado ya evaluado siga siendo válido aquí.
+Capacidad expuesta: consultar_medallion. Es la única tool del PoC
+(POC_feature_work_advanced.ipynb) que quedó validada con evidencia real:
+- camino_feliz PASS: citó correctamente los ingresos de Globex.
+- fuera_de_alcance PASS: el agente no la invocó ante una solicitud de escritura.
+No se migran las demás secciones del PoC (RAG, tool de ejemplo, agente de
+dashboards): nunca se implementaron ni se probaron.
 
-Ejecución como servidor MCP real (stdio, para Claude Desktop, Cursor, el
-MVP de este mismo proyecto, etc.):
-
-    python mcp_server_consultar_medallion.py
+Los datos son sintéticos (SQLite en memoria) para no requerir credenciales de
+un warehouse real; el contrato (nombre, parámetros, validaciones, límites de
+solo lectura) es el mismo que ya se evaluó en el PoC.
 """
 
 import sqlite3
@@ -88,21 +86,27 @@ mcp = FastMCP(
 )
 
 
-@mcp.tool()
-def consultar_medallion(tabla: str, cliente: str | None = None) -> list[dict]:
+@mcp.tool
+def consultar_medallion(tabla: str, cliente: str | None = None) -> dict:
     """Consulta de solo lectura sobre las zonas plata u oro del datawarehouse medallón.
 
-    Recibe el nombre de una tabla autorizada (plata_ventas u oro_kpis_cliente) y,
-    opcionalmente, un client_name para filtrar. Devuelve hasta 50 filas.
-    Úsala cuando el usuario pida cifras, ventas, KPIs o el estado de un cliente.
-    No permite escritura ni tablas fuera de la lista autorizada.
+    Úsala cuando el usuario pida cifras, ventas, KPIs o el estado de un cliente
+    que puedan responderse desde una de las tablas autorizadas. No la uses
+    para crear, modificar o borrar datos: es de solo lectura.
+
+    Args:
+        tabla: nombre de tabla autorizada (plata_ventas u oro_kpis_cliente).
+        cliente: nombre de cliente para filtrar (client_name); opcional.
+
+    Returns:
+        Un dict con "ok", y si tuvo éxito "tabla", "cantidad_registros",
+        "registros" (hasta 50 filas) y "advertencia"; si falló, "error".
     """
     if tabla not in TABLAS_AUTORIZADAS:
-        return [
-            {
-                "error": f"Tabla no autorizada. Usa una de: {sorted(TABLAS_AUTORIZADAS)}",
-            }
-        ]
+        return {
+            "ok": False,
+            "error": f"Tabla no autorizada. Usa una de: {sorted(TABLAS_AUTORIZADAS)}",
+        }
 
     cursor = _DB_SINTETICA.cursor()
     if cliente:
@@ -112,8 +116,12 @@ def consultar_medallion(tabla: str, cliente: str | None = None) -> list[dict]:
 
     columnas = [descripcion[0] for descripcion in cursor.description]
     filas = cursor.fetchall()
-    return [dict(zip(columnas, fila)) for fila in filas]
+    registros = [dict(zip(columnas, fila)) for fila in filas]
 
-
-if __name__ == "__main__":
-    mcp.run()
+    return {
+        "ok": True,
+        "tabla": tabla,
+        "cantidad_registros": len(registros),
+        "registros": registros,
+        "advertencia": "Datos sintéticos de demostración; no representan un warehouse productivo.",
+    }
