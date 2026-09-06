@@ -1,0 +1,14 @@
+# Ignore the virtual environment directory
+.venv
+
+#ignore the .env file
+.env
+
+#ignore the .vscode directory
+.vscode
+
+#ignore the .claude
+.claude
+
+#ignore the homework pdf file
+Tarea 2 proyecto final ALLM - Jesús David Rincón Puche.pdf
