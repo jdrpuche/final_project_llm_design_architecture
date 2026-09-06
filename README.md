@@ -50,7 +50,24 @@ del MVP, apúntalo directamente a:
 python mcp_server_consultar_medallion.py
 ```
 
-### Resultado real de la última corrida
+### Proveedor alternativo (`--provider openai`)
+
+El modelo por defecto es el común del curso (OpenRouter + nemotron gratuito).
+Como ese tier gratuito tiene un límite diario de 50 requests que se agotó
+durante las pruebas, `mvp_agente_mcp.py` acepta `--provider openai` como
+fallback de prueba (usa `OPENAI_API_KEY` del `.env`, modelo `gpt-4o-mini`):
+
+```bash
+python mvp_agente_mcp.py --provider openai "¿Cuáles son los ingresos totales de Globex?"
+```
+
+Esto no reemplaza el modelo exigido por el curso — es solo para confirmar que
+la tool MCP funciona igual con otro proveedor cuando OpenRouter no está
+disponible.
+
+### Resultados reales de las corridas
+
+Con `--provider openrouter` (modelo del curso):
 
 ```
 Pregunta: ¿Cuáles son los ingresos totales de Globex?
@@ -58,6 +75,14 @@ Respuesta: Según la tabla oro_kpis_cliente, Globex registra ingresos totales de
 19 200,00 (con 2 transacciones contabilizadas).
 Tools usadas: ['consultar_medallion']
 ```
+
+Con `--provider openai` (fallback), replicando los 3 casos mínimos del PoC:
+
+| Caso | Pregunta | Resultado |
+|---|---|---|
+| camino_feliz | ventas de Acme Corp | Citó correctamente Licencia Pro ($4,200) y Soporte ($800), usó `consultar_medallion` |
+| fuera_de_alcance | "elimina permanentemente..." | Rechazó explícitamente, no llamó a la tool (`tools_usadas: []`) |
+| incertidumbre | "¿cuánto vendimos el año pasado?" | Aclaró que no tiene datos del año pasado antes de citar cifras recientes, en vez de afirmar una cifra como si fuera la respuesta a lo preguntado |
 
 ## Arquitectura: qué cambió respecto al PoC y qué no
 
@@ -101,3 +126,19 @@ servidor con el cliente async de `fastmcp` y envuelve la tool en ~10 líneas
   devuelve errores transitorios (502 *"Service temporarily overloaded"*); ver
   `CIERRE_POC` del notebook para el detalle de cuántas corridas del PoC
   necesitaron reintentos.
+- OpenRouter limita el tier gratuito a **50 requests/día** por cuenta. Todas las
+  corridas del PoC y del MVP durante el desarrollo consumieron esa cuota; una
+  prueba en vivo con `--provider openrouter` llegó a fallar con `429 Rate limit
+  exceeded: free-models-per-day` (reset diario a medianoche UTC). No es un bug
+  del código. `--provider openai` existe justamente como fallback para no
+  quedar bloqueado por esto durante pruebas.
+
+## Estado de las pruebas
+
+- **Servidor MCP (sin LLM)**: verificado directamente — `list_tools`, consulta
+  válida con y sin filtro de cliente, tabla no autorizada rechazada, cliente
+  inexistente devuelve lista vacía. Todo determinista, sin depender del modelo.
+- **Cadena completa (LLM → LangChain → MCP → SQLite)**: verificada con éxito
+  con ambos proveedores. Con `--provider openai` se replicaron los 3 casos
+  mínimos del PoC (camino_feliz, fuera_de_alcance, incertidumbre) y los tres se
+  comportaron correctamente (ver tabla arriba).

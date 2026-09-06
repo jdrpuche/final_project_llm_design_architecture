@@ -18,8 +18,17 @@ servicio) para reutilizar esta capacidad sin duplicar código.
 Uso:
     python mvp_agente_mcp.py
     python mvp_agente_mcp.py "¿Cuáles son los ingresos totales de Acme Corp?"
+
+El modelo por defecto es el común del curso (OpenRouter + nemotron gratuito).
+Si su cuota diaria gratuita ya se agotó (429 free-models-per-day), se puede
+usar OpenAI directamente con --provider openai (requiere OPENAI_API_KEY en
+.env). Esto es solo para probar que la tool MCP funciona igual con otro
+proveedor; no reemplaza el modelo común exigido por el curso.
+
+    python mvp_agente_mcp.py --provider openai "¿Cuáles son los ingresos totales de Globex?"
 """
 
+import argparse
 import asyncio
 import os
 import sys
@@ -36,7 +45,8 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
 SERVER_SCRIPT = Path(__file__).parent / "mcp_server_consultar_medallion.py"
-MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b:free"
+MODEL_ID_OPENROUTER = "nvidia/nemotron-3-ultra-550b-a55b:free"
+MODEL_ID_OPENAI = "gpt-4o-mini"
 
 # Recorte del Pasaporte del PoC: mismo rol y mismo límite de alcance, sin las
 # secciones que no aplican a este MVP de una sola capacidad.
@@ -82,26 +92,38 @@ def construir_tool_mcp(client: Client):
     return consultar_medallion
 
 
-async def ejecutar_mvp(pregunta: str) -> dict:
+def construir_llm(provider: str) -> ChatOpenAI:
+    if provider == "openai":
+        return ChatOpenAI(
+            model=MODEL_ID_OPENAI,
+            api_key=os.environ["OPENAI_API_KEY"],
+            temperature=0,
+            max_tokens=4096,
+            timeout=60,
+            max_retries=2,
+        )
+    return ChatOpenAI(
+        model=MODEL_ID_OPENROUTER,
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url="https://openrouter.ai/api/v1",
+        temperature=0,
+        max_tokens=4096,
+        timeout=180,
+        max_retries=3,
+        default_headers={
+            "HTTP-Referer": "https://colab.research.google.com/",
+            "X-Title": "AI Project MVP MCP",
+        },
+    )
+
+
+async def ejecutar_mvp(pregunta: str, provider: str = "openrouter") -> dict:
     transport = StdioTransport(command=sys.executable, args=[str(SERVER_SCRIPT)])
     client = Client(transport)
 
     async with client:
         tool_mcp = construir_tool_mcp(client)
-
-        llm = ChatOpenAI(
-            model=MODEL_ID,
-            api_key=os.environ["OPENROUTER_API_KEY"],
-            base_url="https://openrouter.ai/api/v1",
-            temperature=0,
-            max_tokens=4096,
-            timeout=180,
-            max_retries=3,
-            default_headers={
-                "HTTP-Referer": "https://colab.research.google.com/",
-                "X-Title": "AI Project MVP MCP",
-            },
-        )
+        llm = construir_llm(provider)
 
         # Nota (hallazgo del PoC): forzar salida estructurada con
         # response_format=ToolStrategy(...) junto a una tool real rompe el
@@ -124,8 +146,19 @@ async def ejecutar_mvp(pregunta: str) -> dict:
 
 
 if __name__ == "__main__":
-    pregunta = " ".join(sys.argv[1:]) or "¿Cuáles son los ingresos totales de Globex?"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--provider",
+        choices=["openrouter", "openai"],
+        default="openrouter",
+        help="openrouter (modelo común del curso, por defecto) u openai (fallback de prueba)",
+    )
+    parser.add_argument("pregunta", nargs="*", default=[])
+    args = parser.parse_args()
+
+    pregunta = " ".join(args.pregunta) or "¿Cuáles son los ingresos totales de Globex?"
+    print(f"Proveedor: {args.provider}")
     print(f"Pregunta: {pregunta}\n")
-    resultado = asyncio.run(ejecutar_mvp(pregunta))
+    resultado = asyncio.run(ejecutar_mvp(pregunta, provider=args.provider))
     print("Respuesta:", resultado["respuesta"])
     print("Tools usadas:", resultado["tools_usadas"])
