@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from agent import responder
@@ -31,6 +31,13 @@ class Pregunta(BaseModel):
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "index.html")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    # Sin ícono propio; evita el 404 de ruido en los logs por el request
+    # automático del navegador.
+    return Response(status_code=204)
 
 
 @app.post("/api/chat")
