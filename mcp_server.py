@@ -110,7 +110,14 @@ def consultar_medallion(tabla: str, cliente: str | None = None) -> dict:
 
     cursor = _DB_SINTETICA.cursor()
     if cliente:
-        cursor.execute(f"SELECT * FROM {tabla} WHERE client_name = ? LIMIT 50", (cliente,))
+        # Coincidencia insensible a mayúsculas/minúsculas: el agente pasa el
+        # nombre del cliente tal como lo escribió la persona usuaria (p.ej.
+        # "globex"), y no debe fallar solo por no coincidir la capitalización
+        # exacta almacenada ("Globex").
+        cursor.execute(
+            f"SELECT * FROM {tabla} WHERE client_name = ? COLLATE NOCASE LIMIT 50",
+            (cliente,),
+        )
     else:
         cursor.execute(f"SELECT * FROM {tabla} LIMIT 50")
 

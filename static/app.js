@@ -32,7 +32,8 @@ formulario.addEventListener("submit", async (evento) => {
     if (datos.ok) {
       agregarMensaje("agente", datos.respuesta);
     } else {
-      agregarMensaje("error", datos.error);
+      const texto = datos.detalle ? `${datos.error}\n\nDetalle: ${datos.detalle}` : datos.error;
+      agregarMensaje("error", texto);
     }
   } catch (error) {
     historial.removeChild(cargando);
